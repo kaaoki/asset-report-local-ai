@@ -18,7 +18,7 @@ import os
 import requests
 
 from data_processor import PortfolioSummary
-from pdf_exporter import _parse_blocks
+from pdf_exporter import _parse_blocks, _strip_leading_preamble
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "elyza:8b")
@@ -76,8 +76,21 @@ def _build_prompt(summary: PortfolioSummary) -> str:
 資産クラスの配分に偏りがあれば指摘し、一般的な分散投資の考え方に基づいた
 参考コメントを述べてください。これは投資助言ではなく一般的な情報提供である旨を
 最後に一言添えてください。
+- 「高い/低い」といった評価は、必ず上記の「資産クラス別内訳」に実際に記載されている
+  構成比(%)の数値と比較した上で述べてください。数値を確認せずに一般論だけで
+  「低い」「高い」と判定しないでください。
+- 「◯%を目安にすべき」のような具体的な数値基準を新たに作り出さないでください。
+  あくまで実際に提示された構成比同士の比較(例:投資信託が57.0%と資産の半分以上を
+  占めている、など)に基づいてコメントしてください。
 
-文体は丁寧語で、専門用語は必要最小限にしてください。
+文体は丁寧語(です・ます調)で、専門用語は必要最小限にしてください。
+文末は必ず「です」「ます」で統一し、「である」「だ」調を混在させないでください。
+
+# 出力形式についての厳守事項
+- 「以下にレポートを作成します」のような前置きの文は一切書かないでください。
+- 挨拶や確認の言葉も不要です。
+- 見出し「## 1. 保有資産の現状サマリー」から直接書き始めてください。
+- Markdown本文以外の文章(説明、注釈、英語での応答など)を含めないでください。
 """
 
 
@@ -133,7 +146,8 @@ def normalize_report_text(markdown_text: str) -> str:
     テキストを使うこと。
     """
     out_lines: list[str] = []
-    for block_type, text in _parse_blocks(markdown_text):
+    blocks = _strip_leading_preamble(_parse_blocks(markdown_text))
+    for block_type, text in blocks:
         if block_type.startswith("h") and block_type[1:].isdigit():
             out_lines.append(f"{'#' * int(block_type[1:])} {text}")
         elif block_type == "bullet":
