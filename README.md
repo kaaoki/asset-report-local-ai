@@ -7,6 +7,9 @@ PDFとしてダウンロードできるツールです。
 クラウドAPIを一切使わず、**すべての処理がローカルPC内で完結**する設計にしています。
 金融データを外部に送信できない/したくない環境での利用を想定しています。
 
+📄 **出力サンプル**: [sample_report/asset_report.pdf](sample_report/asset_report.pdf)
+(`sample_data/sample_portfolio.csv` を入力に、ELYZA-JP-8Bで生成したレポート例です)
+
 ## できること
 
 - CSV/Excelで資産データを一括アップロード
@@ -46,7 +49,7 @@ PDFとしてダウンロードできるツールです。
 
 ```bash
 # 速度優先で軽量モデルに切り替える例
-OLLAMA_MODEL=qwen2.5:3b-instruct-q4_K_M streamlit run app.py
+OLLAMA_MODEL=qwen2.5:3b-instruct-q4_K_M python -m streamlit run app.py
 ```
 
 ## セットアップ手順
@@ -80,11 +83,17 @@ pip install -r requirements.txt
 ### 5. アプリの起動
 
 ```bash
-streamlit run app.py
+python -m streamlit run app.py
 ```
+
+`streamlit run app.py`でも動きますが、環境によってはPATHの設定次第で
+`streamlit`コマンドが見つからずエラーになることがあるため、
+`python -m streamlit run app.py`(pip installと同じPython環境のstreamlitを
+確実に呼び出せる書き方)を推奨します。
 
 ブラウザで `http://localhost:8501` が開きます。
 `sample_data/sample_portfolio.csv` を使ってすぐに動作確認できます。
+実際にどんなレポートが生成されるかは [sample_report/asset_report.pdf](sample_report/asset_report.pdf) を参照してください。
 
 ## 他のPCで動かす場合
 
