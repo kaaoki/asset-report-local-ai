@@ -116,19 +116,25 @@ class _ReportPDF(FPDF):
         safety_margin = 1.5
         return self.w - self.l_margin - self.r_margin - safety_margin
 
+    def _draw_lines(self, lines: list[str], line_height: float):
+        # multi_cellに複数行をまとめて渡すと、fpdf2内部の幅計算とこちらの
+        # 計算のごくわずかな誤差(浮動小数点の丸め等)により、既に幅内に
+        # 収まっているはずの行が内部で再分割されてしまうことがある。
+        # 1行ずつ確実に描画するため、折り返し済みの行はcell()で個別に描画する
+        # (cellはmulti_cellと異なり、渡した文字列を自動で再折り返ししない)。
+        for line in lines:
+            self.cell(0, line_height, line, new_x="LMARGIN", new_y="NEXT", align="L")
+
     def write_heading(self, text: str, size: int = 14):
-        # align="L" を明示しないと multi_cell は既定で両端揃え(J)になり、
-        # 日本語(スペースがほぼ無い)+英数字混在テキストで、数少ない半角スペースに
-        # 余白調整が集中し不自然な空白ができるため、左揃えに固定する。
         self.set_font("ipaex", size=size)
         wrapped = _wrap_with_kinsoku(self, text, self._max_line_width())
-        self.multi_cell(0, 10, "\n".join(wrapped), align="L")
+        self._draw_lines(wrapped, 10)
         self.ln(2)
 
     def write_body(self, text: str, size: int = 11):
         self.set_font("ipaex", size=size)
         wrapped = _wrap_with_kinsoku(self, text, self._max_line_width())
-        self.multi_cell(0, 8, "\n".join(wrapped), align="L")
+        self._draw_lines(wrapped, 8)
         self.ln(1)
 
 
@@ -194,7 +200,14 @@ def _parse_blocks(markdown_text: str) -> list[tuple[str, str]]:
         line = _clean_line(raw_line)
 
         if not line.strip():
-            # 空行はLLMが体裁のために挿入することが多いため、区切りとしては扱わず無視する
+            # 空行はLLMが体裁のために挿入することが多いため、通常の段落では
+            # 区切りとして扱わず無視する。ただし箇条書きの後の空行は、
+            # 「リストの終わり」を示す一般的なMarkdownの合図として尊重し、
+            # 後続の説明文が直前の箇条書き項目にくっつかないようにする。
+            if current_type == "bullet":
+                flush()
+                current_parts.clear()
+                current_type = None
             continue
 
         check_line = line.lstrip()  # 行頭空白のみ除去し、行末の空白(結合判定用)は残す
@@ -225,6 +238,26 @@ def _parse_blocks(markdown_text: str) -> list[tuple[str, str]]:
     return blocks
 
 
+def _strip_leading_preamble(
+    blocks: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    """最初の見出しより前に来るブロックを取り除く。
+
+    プロンプトで禁止していても、LLMが「以下にレポートを作成します」
+    "Here is the report in Markdown format:" のような前置きの一言を
+    付けてくることがある。実際のレポート内容は必ず見出しから始まる設計
+    (report_engine.pyのプロンプト参照)のため、最初の見出しより前にある
+    ブロックは前置きコメントとみなして除去する。
+    """
+    first_heading_index = next(
+        (i for i, (block_type, _) in enumerate(blocks) if block_type.startswith("h")),
+        None,
+    )
+    if first_heading_index:
+        return blocks[first_heading_index:]
+    return blocks
+
+
 def markdown_to_pdf(
     markdown_text: str,
     output_path: str,
@@ -240,10 +273,13 @@ def markdown_to_pdf(
     pdf.write_heading(title, size=18)
 
     blocks = _parse_blocks(markdown_text)
+    blocks = _strip_leading_preamble(blocks)
     # LLMが文章の先頭に独自のタイトル見出し(例: "# 資産管理レポート")を
     # つけてくることがあり、上で描画した固定タイトルと重複してしまうため、
-    # 先頭ブロックが見出しの場合はそちらを除去する。
-    if blocks and blocks[0][0].startswith("h"):
+    # 先頭ブロックが"レベル1"見出しの場合のみそちらを除去する。
+    # (レベル2の "## 1. 保有資産の現状サマリー" のような、本来必要な
+    #  セクション見出しまで誤って消さないよう、h1限定にしている)
+    if blocks and blocks[0][0] == "h1":
         blocks = blocks[1:]
 
     heading_sizes = {"h1": 16, "h2": 14, "h3": 12}
